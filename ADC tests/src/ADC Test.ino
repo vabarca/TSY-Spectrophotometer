@@ -19,15 +19,42 @@ DMAMEM static volatile int16_t __attribute__((aligned(buffer_size+0))) buffer[bu
 // use dma with ADC0
 RingBufferDMA *dmaBuffer = new RingBufferDMA(buffer, buffer_size, ADC_0);
 
-void toggleLED()
+inline void toggleLED()
 {
   digitalWriteFast(LED_BUILTIN, !digitalReadFast(LED_BUILTIN));
 }
 
+void configure1MhzPin3()
+{
+  //declaration
+  unsigned int FTM1MODCount = 23;
+
+  //initialise Flextimer 1
+  FTM1_MODE = 0x05; //set write-protect disable (WPDIS) bit to modify other registers
+  //FAULTIE=0, FAULTM=00, CAPTEST=0, PWMSYNC=0, WPDIS=1, INIT=0, FTMEN=1(no restriction FTM)
+  FTM1_SC = 0x00; //set status/control to zero = disabled (enabled in main loop)
+  FTM1_CNT = 0x0000; //reset count to zero
+  FTM1_MOD = FTM1MODCount; //max modulus = 23 (gives count = 24 on roll-over - 1 MHz)
+  FTM1_C0SC = 0x14; // CHF=0, CHIE=0 (disable interrupt), MSB=0 MSA=1, ELSB=0 ELSA=1 (output compare - toggle), 0, DMA=0
+  //FTM1_C1SC = 0x14; // CHF=0, CHIE=0 (disable interrupt), MSB=0 MSA=1, ELSB=0 ELSA=1 (output compare - toggle), 0, DMA=0
+
+  //configure Teensy pins as outputs
+  PORTA_PCR12 |= 0x300; //MUX = alternative function 3 on Chip Pin 28 (FTM1_CH0) = Teensy Pin 3
+  //PORTA_PCR13 |= 0x300; //MUX = alternative function 3 on Chip Pin 29 (FTM1_CH1) = Teensy Pin 4
+
+  //enable system clock (48 MHz), no prescale
+  FTM1_C0V = 0; //compare value = 0
+  //FTM1_C1V = 12; //compare value = 12
+  FTM1_SC = 0x08; // (Note - FTM0_SC [TOF=0 TOIE=0 CPWMS=0 CLKS=01 (System Clock 48 MHz) PS=000 [no prescale divide])
+
+}
+
 void setup() {
+
 
     pinMode(LED_BUILTIN, OUTPUT);
     pinMode(readPin, INPUT); //pin 23 single ended
+
 
     Serial.begin(115200);
 
@@ -64,6 +91,7 @@ void setup() {
       toggleLED();
       delay(100);
     }
+
 }
 
 char c=0;
@@ -87,6 +115,7 @@ void loop() {
 
 
 // called everytime a new value is converted. The DMA isr is called first
+voltile unsigned long ulData = {0};
 void adc0_isr(void) {
     ADC0_RA; // clear interrupt
     if(dmaBuffer->isFull())
